@@ -146,6 +146,7 @@ const AIGenerator: React.FC = () => {
             let fullPrompt = '';
             let imageToSend = undefined;
             let mimeTypeToSend = undefined;
+            const aspect = "1:1";
 
             if (mode === 'edit') {
                 if (!sourceImage) {
@@ -175,8 +176,9 @@ const AIGenerator: React.FC = () => {
                     return;
                 }
 
-                fullPrompt = `Generate an image of a nail art design. Focus on the nails. Style: ${currentPrompt}. 
-        Macro photography, 8k resolution, professionally lit.`;
+                // Using user's high-quality prompt template
+                fullPrompt = `High fashion editorial photography of a woman's hand with elegant fingers. Focus on the manicure. Style: ${currentPrompt}.
+        The image must show the hand gracefully posed, visible fingers, soft skin texture, studio lighting, 8k resolution, photorealistic, Vogue magazine quality.`;
             }
 
             // Secure API Call to Vercel Serverless Function
@@ -186,7 +188,10 @@ const AIGenerator: React.FC = () => {
                 body: JSON.stringify({
                     prompt: fullPrompt,
                     image: imageToSend,
-                    mimeType: mimeTypeToSend
+                    mimeType: mimeTypeToSend,
+                    generationConfig: {
+                        imageConfig: { aspectRatio: aspect }
+                    }
                 })
             });
 
@@ -208,7 +213,7 @@ const AIGenerator: React.FC = () => {
                     const text = data.result;
                     // Sometimes Gemini returns text if it refuses to generate image
                     if (text.length < 500 && !text.includes('base64')) {
-                        throw new Error(`Модель вернула текст: ${text.substring(0, 100)}...`);
+                        throw new Error(`Модель вернула текст (возможно, сработал фильтр): ${text.substring(0, 100)}...`);
                     }
                 }
             } else {
@@ -222,7 +227,7 @@ const AIGenerator: React.FC = () => {
             if (errorMessage.includes('429') || errorMessage.includes('quota')) {
                 errorMessage = "⏳ Сервер перегружен. Подождите 1 минуту.";
             } else if (errorMessage.includes('security') || errorMessage.includes('safety')) {
-                errorMessage = "🙈 Сработал фильтр безопасности.";
+                errorMessage = "🙈 Сработал фильтр безопасности (High Fashion иногда считается too much). Попробуйте стиль попроще.";
             }
 
             setError(errorMessage);
