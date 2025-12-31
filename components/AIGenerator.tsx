@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { GoogleGenAI } from "@google/genai";
+// import { GoogleGenAI } from "@google/genai";
 import {
     Sparkles, Wand2, Download, RefreshCcw, Palette, Layers, Hexagon,
     Gem, Cpu, Heart, Droplets, Cloud, Star, Flame, Zap, PenTool, Wind, Scissors, ChevronDown, ChevronUp,
@@ -143,11 +143,9 @@ const AIGenerator: React.FC = () => {
         setError(null);
 
         try {
-            // Initialize SDK with AI Studio Key
-            const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
-
-            let response;
             let fullPrompt = '';
+            let imageToSend = undefined;
+            let mimeTypeToSend = undefined;
 
             if (mode === 'edit') {
                 if (!sourceImage) {
@@ -161,22 +159,12 @@ const AIGenerator: React.FC = () => {
                     return;
                 }
 
-                // For Edit mode with Gemini 2.0 Flash (Multimodal)
                 const base64Data = sourceImage.split(',')[1];
                 const mimeType = sourceImage.substring(sourceImage.indexOf(':') + 1, sourceImage.indexOf(';'));
 
                 fullPrompt = `Edit this image: ${prompt}. Return a high-quality modified image in response.`;
-
-                response = await ai.models.generateContent({
-                    model: 'gemini-2.0-flash-exp',
-                    contents: {
-                        parts: [
-                            { inlineData: { mimeType, data: base64Data } },
-                            { text: fullPrompt }
-                        ]
-                    },
-
-                });
+                imageToSend = base64Data;
+                mimeTypeToSend = mimeType;
 
             } else {
                 // Create Mode
@@ -189,54 +177,52 @@ const AIGenerator: React.FC = () => {
 
                 fullPrompt = `Generate an image of a nail art design. Focus on the nails. Style: ${currentPrompt}. 
         Macro photography, 8k resolution, professionally lit.`;
-
-                // Request Image Output
-                response = await ai.models.generateContent({
-                    model: 'gemini-2.0-flash-exp',
-                    contents: {
-                        parts: [{ text: fullPrompt }]
-                    },
-
-                });
             }
 
-            // Extract Image from Response
-            if (response.candidates && response.candidates[0] && response.candidates[0].content && response.candidates[0].content.parts) {
-                // Check for inline data (image)
-                const imagePart = response.candidates[0].content.parts.find((part: any) => part.inlineData);
+            // Secure API Call to Vercel Serverless Function
+            const apiResponse = await fetch('/api/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    prompt: fullPrompt,
+                    image: imageToSend,
+                    mimeType: mimeTypeToSend
+                })
+            });
 
-                if (imagePart && imagePart.inlineData) {
-                    const base64String = imagePart.inlineData.data;
-                    // Detect mime type or default to png/jpeg depending on response
-                    const mimeType = imagePart.inlineData.mimeType || 'image/jpeg';
-                    setGeneratedImage(`data:${mimeType};base64,${base64String}`);
-                } else {
-                    // Sometimes it returns text if it refuses to generate image
-                    const textPart = response.candidates[0].content.parts.find((part: any) => part.text);
-                    if (textPart) {
-                        throw new Error(`Модель вернула текст вместо фото: ${textPart.text.substring(0, 100)}...`);
+            if (!apiResponse.ok) {
+                const errorData = await apiResponse.json().catch(() => ({}));
+                throw new Error(errorData.error || `API Error: ${apiResponse.status}`);
+            }
+
+            const data = await apiResponse.json();
+
+            // Handle the response
+            if (data.result) {
+                if (data.inlineData) {
+                    const base64String = data.inlineData.data;
+                    const resMimeType = data.inlineData.mimeType || 'image/jpeg';
+                    setGeneratedImage(`data:${resMimeType};base64,${base64String}`);
+                } else if (data.result) {
+                    // If we just got text, check if it's an error message or description
+                    const text = data.result;
+                    // Sometimes Gemini returns text if it refuses to generate image
+                    if (text.length < 500 && !text.includes('base64')) {
+                        throw new Error(`Модель вернула текст: ${text.substring(0, 100)}...`);
                     }
-                    throw new Error("Ответ модели пуст (нет картинки).");
                 }
             } else {
-                throw new Error("Некорректный ответ от API.");
+                throw new Error("Пустой ответ от сервера.");
             }
 
         } catch (err: any) {
             console.error(err);
             let errorMessage = err.message || JSON.stringify(err);
 
-            // Handle Quota/Rate Limit Errors
-            if (errorMessage.includes('429') || errorMessage.includes('Quota exceeded') || errorMessage.includes('RESOURCE_EXHAUSTED')) {
-                errorMessage = "⏳ Сервер перегружен (Лимит запросов). Пожалуйста, подождите 1 минуту и попробуйте снова.";
-            } else if (errorMessage.includes('sexual') || errorMessage.includes('prohibited content')) {
-                errorMessage = "🔞 Google ошибочно посчитал запрос 'неприличным' (маникюр иногда попадает под этот фильтр). Я сделал запрос максимально нейтральным, попробуйте еще раз.";
-            } else if (errorMessage.includes('personally identifiable information') || errorMessage.includes('PII') || errorMessage.includes('sensitive demographics')) {
-                errorMessage = "🙈 На фото или в запросе обнаружены признаки, которые Google считает слишком личными. Я упростил запрос, попробуйте еще раз.";
-            } else if (errorMessage.includes('supported for the API use') || errorMessage.includes('location')) {
-                errorMessage = "🌍 ВАЖНО: Включите VPN (США/Европа). Google ограничивает доступ из вашего региона.";
-            } else if (errorMessage.includes('400') || errorMessage.includes('INVALID_ARGUMENT')) {
-                errorMessage = "⚠️ Ошибка параметров запроса. Попробуйте изменить настройки.";
+            if (errorMessage.includes('429') || errorMessage.includes('quota')) {
+                errorMessage = "⏳ Сервер перегружен. Подождите 1 минуту.";
+            } else if (errorMessage.includes('security') || errorMessage.includes('safety')) {
+                errorMessage = "🙈 Сработал фильтр безопасности.";
             }
 
             setError(errorMessage);
