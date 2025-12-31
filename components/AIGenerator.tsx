@@ -417,7 +417,7 @@ const AIGenerator: React.FC = () => {
                                 <div className="flex items-center justify-between mt-8 pt-6 border-t border-gray-100">
                                     <span className="text-[9px] font-sans text-gray-400 uppercase tracking-widest flex items-center gap-2">
                                         <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div>
-                                        Gemini 2.0 Flash (Exp)
+                                        Gemini 1.5 Flash
                                     </span>
                                     <button
                                         onClick={handleGenerate}
